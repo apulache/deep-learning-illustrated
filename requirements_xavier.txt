@@ -1,0 +1,8 @@
+tflearn 
+nltk
+gensim
+gym
+ipywidgets
+
+
+

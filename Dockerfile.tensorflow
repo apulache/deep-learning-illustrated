@@ -1,5 +1,7 @@
 FROM nvcr.io/nvidia/l4t-tensorflow:r35.1.0-tf2.9-py3 AS baseline
 
+SHELL ["/bin/bash", "-c"]
+
 #
 # apt packages
 #
@@ -31,32 +33,47 @@ RUN apt-get update && \
 		llvm-9-dev \
 		libffi-dev \
 		libsndfile1 \
+		python3-sklearn \
+		python3-sklearn-lib \
+	#	python3-sklearn-doc \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-#
-# python pip packages
-#
-RUN pip3 install --no-cache-dir --ignore-installed pybind11 
-RUN pip3 install --no-cache-dir --verbose onnx
-RUN pip3 install --no-cache-dir --verbose scipy
-RUN pip3 install --no-cache-dir --verbose scikit-learn
-RUN pip3 install --no-cache-dir --verbose pandas
-RUN pip3 install --no-cache-dir --verbose pycuda
-RUN pip3 install --no-cache-dir --verbose numba
 
 #
-# Deep Learning Ilustrated
+# Rust and Cargo
 #
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUST_VERSION=1.67.0
 
-RUN pip3 install --no-cache-dir --verbose tflearn keras nltk gensim gym h5py matplotlib
+RUN set -eux; \
+    dpkgArch="$(dpkg --print-architecture)"; \
+    case "${dpkgArch##*-}" in \
+        amd64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='bb31eaf643926b2ee9f4d8d6fc0e2835e03c0a60f34d324048aa194f0b29a71c' ;; \
+        armhf) rustArch='armv7-unknown-linux-gnueabihf'; rustupSha256='6626b90205d7fe7058754c8e993b7efd91dedc6833a11a225b296b7c2941194f' ;; \
+        arm64) rustArch='aarch64-unknown-linux-gnu'; rustupSha256='4ccaa7de6b8be1569f6b764acc28e84f5eca342f5162cd5c810891bff7ed7f74' ;; \
+        i386) rustArch='i686-unknown-linux-gnu'; rustupSha256='34392b53a25c56435b411d3e575b63aab962034dd1409ba405e708610c829607' ;; \
+        *) echo >&2 "unsupported architecture: ${dpkgArch}"; exit 1 ;; \
+    esac; \
+    url="https://static.rust-lang.org/rustup/archive/1.25.2/${rustArch}/rustup-init"; \
+    wget "$url"; \
+    echo "${rustupSha256} *rustup-init" | sha256sum -c -; \
+    chmod +x rustup-init; \
+    ./rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION --default-host ${rustArch}; \
+    rm rustup-init; \
+    chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
+    rustup --version; \
+    cargo --version; \
+    rustc --version;
 
 
 #
 # JupyterLab
 #
-RUN pip3 install --no-cache-dir --verbose jupyter jupyterlab && \
-    pip3 install --no-cache-dir --verbose jupyterlab_widgets
+RUN pip3 install --no-cache-dir --verbose jupyterlab && \ 
+	pip3 install --no-cache-dir --verbose jupyterlab-widgets
     
 RUN jupyter lab --generate-config
 RUN python3 -c "from notebook.auth.security import set_password; set_password('nvidia', '/root/.jupyter/jupyter_notebook_config.json')"
@@ -65,3 +82,25 @@ CMD /bin/bash -c "jupyter lab --ip 0.0.0.0 --port 8888 --allow-root &> /var/log/
 	echo "allow 10 sec for JupyterLab to start @ http://$(hostname -I | cut -d' ' -f1):8888 (password nvidia)" && \
 	echo "JupterLab logging location:  /var/log/jupyter.log  (inside the container)" && \
 	/bin/bash
+
+#
+# python pip packages
+#
+
+FROM baseline
+
+RUN pip3 install --upgrade pip
+RUN pip3 install --no-cache-dir --ignore-installed pybind11 
+# RUN pip3 install --no-cache-dir --verbose onnx
+RUN pip3 install --no-cache-dir --verbose scipy
+# RUN pip3 install --no-cache-dir --verbose scikit-learn
+RUN pip3 install --no-cache-dir --verbose pandas
+RUN pip3 install --no-cache-dir --verbose pycuda
+RUN pip3 install --no-cache-dir --verbose numba
+
+
+#
+# Deep Learning Ilustrated
+#
+
+# RUN pip3 install --no-cache-dir --verbose tflearn keras nltk gensim gym h5py matplotlib
